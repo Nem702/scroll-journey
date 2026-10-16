@@ -1,0 +1,70 @@
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: #0b0b0c;
+  color: #c8c8c8;
+  font: 14px/1.5 system-ui, sans-serif;
+}
+
+/* 600vh section = 500vh of scrolling from the first frame to the last. */
+#scrub {
+  height: 600vh;
+}
+
+/* 100vh (not svh/dvh) so the phone address bar showing/hiding doesn't resize the canvas. */
+#scene {
+  position: sticky;
+  top: 0;
+  display: block;
+  width: 100%;
+  height: 100vh;
+}
+
+#loader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0b0b0c;
+  font-size: 1.1rem;
+}
+
+#loader[hidden] {
+  display: none;
+}
+
+footer {
+  padding: 2rem 1rem 3rem;
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+footer p {
+  margin: 0.25rem 0;
+}
+
+footer a {
+  color: inherit;
+}
+
+#stats {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  padding: 4px 8px;
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  font: 12px/1.4 ui-monospace, Consolas, monospace;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #scrub {
+    height: auto;
+  }
+}
