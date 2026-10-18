@@ -1,19 +1,22 @@
 # scroll-journey
 
-Personal portfolio piece: a photoreal scroll-driven story. A 1975 911 (930) Turbo drives autumn mountain roads to a lakeside cabin, and it ends on the porch with coffee as golden hour turns to dusk and stars. Scrolling scrubs pre-rendered Blender frames on a canvas; text, transitions, leaves, steam and sound run live on top.
+Personal portfolio piece: one photoreal view from a cabin porch over a misty mountain valley. Scrolling scrubs pre-rendered Blender frames on a canvas and moves time from golden hour through dusk to stars; a car's headlights wind along the valley road at dusk and steam rises from a mug on the rail. Text and steam run live on top.
 
 ## Stack
 - Blender 5.2 LTS, driven only by Python scripts run headless: `blender -b -P blender\<script>.py`. If `blender` isn't on PATH, call it by full path under `C:\Program Files\Blender Foundation\` (don't edit PATH). Cycles on the RTX 4080 (OptiX).
+- Blender exits with code 0 even when a script fails: check the log for `Traceback`.
 - Frames: numbered WebP. A ~1440p 16:9 desktop set plus a separate portrait phone set. Not 4K.
-- Site: Vite + TypeScript + GSAP (ScrollTrigger), exact versions pinned. No framework and no live 3D (Three.js). Sound is synthesized with Web Audio.
+- Site: Vite + TypeScript + GSAP (ScrollTrigger), exact versions pinned. No framework and no live 3D (Three.js). No sound for now.
 - Windows + PowerShell 7. Use `py`, not `python`.
 - Priority: smoothness and visual quality first, then download size.
 
 ## Folders
 - `assets-source/` raw downloads (car .glb, HDRIs, textures, models). Not committed.
+- `assets-source/reference/` reference photos for comparison only. They never ship.
 - `blender/` scene scripts, safe to re-run. `renders/` raw output, timing logs, review stills. Not committed.
 - `public/frames/<scene>/` web-ready frames the site loads. Generated, not committed.
 - `docs/` plan and handoff files. Local only, via `.git/info/exclude`.
+- Attempt 1's 03 work and the 2D canvas fallback are parked on the git branch `parked-03-and-2d`. Don't merge it.
 
 ## Rules
 - Approved sources: Poly Haven (CC0; official site and API only) and the Lionsharp 911 .glb. Any other asset, npm package, Blender add-on or service needs Nems's OK after a license, source and security screen.
