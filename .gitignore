@@ -3,3 +3,4 @@ dist/
 assets-source/
 renders/
 public/frames/
+__pycache__/
