@@ -15,13 +15,24 @@ body {
   height: 600vh;
 }
 
-/* 100vh (not svh/dvh) so the phone address bar showing/hiding doesn't resize the canvas. */
+/* 100vh (not svh/dvh) so the phone address bar showing/hiding doesn't resize the canvases. */
 #scene {
   position: sticky;
   top: 0;
+  height: 100vh;
+}
+
+/* The crossfade: two canvases stacked; the top one's opacity is how far the scroll is between two frames. */
+#scene canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  height: 100vh;
+  height: 100%;
+}
+
+#scene canvas + canvas {
+  will-change: opacity;
 }
 
 #loader {
