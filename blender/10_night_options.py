@@ -126,19 +126,29 @@ RAY_SIZE = 0.3  # degrees of yaw per ray
 RAY_PATCH = 3.5  # degrees of yaw: rays bunch together in some stretches and the sheet is smooth in others
 AURORA_TOP = (40.0, 90.0, 35.0)  # km above the lower edge: the fringe fades in between the first two, then out
 AURORA_EXTINCTION = 0.04  # optical depth of the air straight up: the aurora dims a little toward the horizon
+RAY_BEND_SIZE = 2.5  # degrees: with add_aurora's bend, the stretch over which rays crowd together or spread apart
 
 
 def aurora_strength(sun):
     return float(porch.smoothstep(*AURORA_FADE, sun))
 
 
-def add_aurora(world, look, strength, phase=AURORA_PHASE):
+def add_aurora(world, look, strength, phase=AURORA_PHASE, lean_toward=None, bend=0.0, drift=0.0):
     """Adds the aurora to both of the world's sky colours (the one the camera sees and the one light bounces see), so it
     sits behind the ridges with the stars on top and lights the scene a little. Each curtain is a straight sheet of
     light with large waves and small folds. For every direction this works out the height at which that line of sight
     passes the sheet (with the earth's curve) and how bright the sheet is there: a soft, ragged lower edge, a bright hem
     fading upward, rays of different lengths above it and a red-purple fringe at the top. Where a fold turns the sheet
-    edge-on to the camera, the line of sight runs through more of it, so it looks brighter."""
+    edge-on to the camera, the line of sight runs through more of it, so it looks brighter.
+
+    The defaults draw handoff 10's aurora. Options added for handoff 11:
+    - lean_toward (yaw, elevation in degrees): the rays lean toward this point overhead, as real rays follow the
+      earth's magnetic field toward the magnetic zenith. Default: straight up.
+    - bend: pushes the rays around by up to this many ray widths, so they crowd together in places and spread apart in
+      others. Default 0: fairly even.
+    - drift: degrees the folds and bright patches slide along the curtains per unit of phase. Default 0: the phase
+      only reshapes them. The rays always just reshape: they're too thin to slide without a crossfade between two
+      frames showing them twice."""
     nt = world.node_tree
     lit = nt.nodes["Background"]
     seen = next(n for n in nt.nodes if n.type == "BACKGROUND" and n != lit)
@@ -186,8 +196,15 @@ def add_aurora(world, look, strength, phase=AURORA_PHASE):
         nt.links.new(b, s.inputs[1])
         return s.outputs[0]
 
+    def dot(vector, constant):
+        d = porch.node(nt, "ShaderNodeVectorMath", operation="DOT_PRODUCT")
+        nt.links.new(vector, d.inputs[0])
+        d.inputs[1].default_value = constant
+        return d.outputs["Value"]
+
     split = porch.node(nt, "ShaderNodeSeparateXYZ")
-    nt.links.new(porch.node(nt, "ShaderNodeNewGeometry").outputs["Position"], split.inputs[0])  # the ray's direction
+    direction = porch.node(nt, "ShaderNodeNewGeometry").outputs["Position"]  # the ray's direction
+    nt.links.new(direction, split.inputs[0])
     dx, dy, up = split.outputs["X"], split.outputs["Y"], split.outputs["Z"]
     yaw = m("ARCTAN2", dx, dy)
     slope = m("DIVIDE", up, m("MAXIMUM", m("SQRT", m("ADD", m("MULTIPLY", dx, dx), m("MULTIPLY", dy, dy))), 1e-3))
@@ -195,12 +212,26 @@ def add_aurora(world, look, strength, phase=AURORA_PHASE):
     def per_degrees(value, degrees):  # yaw (radians) in units of so many degrees
         return m("MULTIPLY", value, 1 / math.radians(degrees))
 
+    slide = math.radians(drift) * phase
+
+    def slid(at):  # a position along the curtains, moved by the drift; the curtains themselves stay where they are
+        return m("ADD", at, slide) if slide else at
+
+    ray_at = yaw  # where a ray sits along the curtains: by yaw, the rays run straight up
+    if lean_toward:
+        # By the angle around the point they lean toward instead: every line of sight on one great circle through that
+        # point gets the same value, so each ray follows one of those circles. With the point straight up, it's the yaw.
+        az, el = (math.radians(a) for a in lean_toward)
+        pole = Vector((math.sin(az) * math.cos(el), math.cos(az) * math.cos(el), math.sin(el)))
+        north = (Vector((0.0, 1.0, 0.0)) - pole * pole.y).normalized()
+        ray_at = m("ARCTAN2", dot(direction, north.cross(pole)), dot(direction, north))
+
     green_sum = top_sum = None
     for c in CURTAINS:
         def distance(at, c=c):
-            spread = 1.0
+            spread, along = 1.0, slid(at)
             for i, (depth, size) in enumerate(WAVES):
-                wave = signed(noise((per_degrees(at, size), c.seed + 10 * i, 0.0), phase * 0.3 + c.seed, 1.0))
+                wave = signed(noise((per_degrees(along, size), c.seed + 10 * i, 0.0), phase * 0.3 + c.seed, 1.0))
                 spread = m("MULTIPLY_ADD", wave, depth, spread)
             facing = m("MAXIMUM", m("COSINE", m("SUBTRACT", at, math.radians(c.bearing))), 0.12)
             return m("DIVIDE", m("MULTIPLY", spread, c.distance), facing)
@@ -211,10 +242,15 @@ def add_aurora(world, look, strength, phase=AURORA_PHASE):
         fold = m("MINIMUM", m("SQRT", m("MULTIPLY_ADD", turn, turn, 1.0)), FOLD_MAX)
         height = m("MULTIPLY_ADD", near, slope, m("DIVIDE", m("MULTIPLY", near, near), 2 * EARTH_R_KM))
         z = m("SUBTRACT", height, c.base)
-        ray = noise((per_degrees(yaw, RAY_SIZE), m("DIVIDE", z, 120.0), c.seed), phase + c.seed, 3.0)
-        bunched = ramp(noise((per_degrees(yaw, RAY_PATCH), c.seed + 5.3, 0.0), phase * 0.5 + c.seed, 1.0), 0.48, 0.66)
+        across = per_degrees(ray_at, RAY_SIZE)
+        if bend:
+            push = noise((per_degrees(ray_at, RAY_BEND_SIZE), c.seed + 2.9, 0.0), phase * 0.2 + c.seed, 1.0)
+            across = m("MULTIPLY_ADD", signed(push), bend, across)
+        ray = noise((across, m("DIVIDE", z, 120.0), c.seed), phase + c.seed, 3.0)
+        bunched = ramp(noise((per_degrees(ray_at, RAY_PATCH), c.seed + 5.3, 0.0), phase * 0.5 + c.seed, 1.0),
+                       0.48, 0.66)
         rays = m("MULTIPLY_ADD", m("MULTIPLY", signed(ray), bunched), 0.7, 1.0)  # 1 where the sheet is smooth
-        reach = ramp(noise((per_degrees(yaw, RAY_SIZE * 1.7), c.seed + 3.1, 0.0), phase + c.seed, 1.0), 0.35, 0.7)
+        reach = ramp(noise((per_degrees(ray_at, RAY_SIZE * 1.7), c.seed + 3.1, 0.0), phase + c.seed, 1.0), 0.35, 0.7)
         z = m("MULTIPLY_ADD", signed(ray), AURORA_RAGGED, z)  # each ray's foot a little higher or lower
         above = m("MAXIMUM", z, 0.0)
         hem = m("EXPONENT", m("DIVIDE", above, -HEM_HEIGHT))
@@ -227,7 +263,8 @@ def add_aurora(world, look, strength, phase=AURORA_PHASE):
             "ADD", m("MULTIPLY", hem, m("MULTIPLY_ADD", rays, 0.3, 0.3)), m("MULTIPLY", streaks, 0.45))))
         top = m("MULTIPLY", m("MULTIPLY", ramp(z, AURORA_TOP[0], AURORA_TOP[1]), m("MULTIPLY_ADD", rays, 0.4, 0.6)),
                 m("EXPONENT", m("MULTIPLY", m("MAXIMUM", m("SUBTRACT", z, AURORA_TOP[1]), 0.0), -1.0 / AURORA_TOP[2])))
-        patches = ramp(noise((per_degrees(yaw, PATCH_SIZE), c.seed + 7.7, 0.0), phase * 0.2 + c.seed, 1.0), 0.38, 0.62)
+        patches = ramp(noise((per_degrees(slid(yaw), PATCH_SIZE), c.seed + 7.7, 0.0), phase * 0.2 + c.seed, 1.0),
+                       0.38, 0.62)
         weight = m("MULTIPLY", fold, m("MULTIPLY_ADD", patches, 0.85 * c.brightness, 0.15 * c.brightness))
         green, top = m("MULTIPLY", green, weight), m("MULTIPLY", top, m("MULTIPLY", weight, c.fringe))
         green_sum = green if green_sum is None else m("ADD", green_sum, green)
