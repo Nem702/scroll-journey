@@ -10,9 +10,10 @@ body {
   font: 14px/1.5 system-ui, sans-serif;
 }
 
-/* 600vh section = 500vh of scrolling from the first frame to the last. */
+/* 667vh section = 567vh of scrolling over the 68 steps from the first frame to the last: 8.3vh a step, as with 09's
+   61 frames (500vh over 60). */
 #scrub {
-  height: 600vh;
+  height: 667vh;
 }
 
 /* 100vh (not svh/dvh) so the phone address bar showing/hiding doesn't resize the canvases. */

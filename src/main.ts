@@ -3,7 +3,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
 gsap.registerPlugin(ScrollTrigger);
 
-const FRAME_COUNT = 61;
+const FRAME_COUNT = 69;
 const STILL_FRAME = 1; // k1, golden hour: the one frame shown when reduced motion is on
 
 const params = new URLSearchParams(location.search);
