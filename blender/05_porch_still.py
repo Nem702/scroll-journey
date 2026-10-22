@@ -272,6 +272,12 @@ CLOUD_FADE = (68000.0, 84000.0)
 # Tall conifers only: the pines on the shoulder use them as they are, the valley (1-9 km) uses decimated copies.
 TREE_ASSETS = ["fir_tree_01", "pine_tree_01"]
 MID_TREE_POLYS = 120_000  # decimated copies for the 1-9 km band
+# Handoff 14: True loads the light trees that blender/14_light_trees.py saved beside the originals
+# (assets-source/models/<id>/<id>_light.blend) instead of importing the full models and decimating them on every run.
+# The shoulder gets the light versions; the valley and the treetops get VALLEY_TREES: "far" (the light valley version)
+# or "mid" (the decimated copies above, saved). Off by default, so 05-12 build what they always have.
+LIGHT_TREES = False
+VALLEY_TREES = "far"
 # The pines on the shoulder stand lower than round 2's (below the rail), so they're a little taller and sparser.
 NEAR_DENSITY = 0.03  # trees per square metre where the density map is 1 (Poisson, 3.5 m apart); round 2: 0.06
 NEAR_SCALE = (1.0, 1.6)  # 14-33 m tall; round 2: (0.85, 1.45)
@@ -762,6 +768,44 @@ def import_variants(assets, coll):
     return sorted(objs, key=lambda o: o.name)
 
 
+def decimated_copy(o, depsgraph):
+    """A copy of o decimated to about MID_TREE_POLYS polygons, for the valley: a new object named <name>_mid."""
+    mod = o.modifiers.new("decimate", "DECIMATE")
+    mod.ratio = min(1.0, MID_TREE_POLYS / len(o.data.polygons))
+    depsgraph.update()
+    mesh = bpy.data.meshes.new_from_object(o.evaluated_get(depsgraph))
+    o.modifiers.remove(mod)
+    return bpy.data.objects.new(o.name + "_mid", mesh)
+
+
+def light_tree_path(asset):
+    """Where blender/14_light_trees.py saves an asset's light trees: beside its glTF."""
+    return ASSETS / "models" / asset / f"{asset}_light.blend"
+
+
+def load_light_trees(near_coll, valley_coll=None, valley=None):
+    """The light trees made by blender/14_light_trees.py, appended from our own .blend files (no scripts in them;
+    nothing runs). Each variant's light version goes into near_coll and, with valley_coll, its valley version ("far"
+    or "mid", default VALLEY_TREES) into valley_coll. The light versions keep the full models' names and the valley
+    versions share one suffix, so the scatter (which takes them in name order) picks the same variant for every tree.
+    Returns (near, valley), each sorted by name."""
+    suffix = "_" + (valley or VALLEY_TREES)
+    near, valley_objs = [], []
+    for asset in TREE_ASSETS:
+        path = light_tree_path(asset)
+        if not path.exists():
+            raise SystemExit(f"{path} is missing: make it first with blender/14_light_trees.py -- --make")
+        with bpy.data.libraries.load(str(path), link=False) as (src, dst):
+            names = [n for n in src.objects
+                     if not n.endswith(("_mid", "_far")) or (valley_coll is not None and n.endswith(suffix))]
+            dst.objects = list(names)  # Blender swaps this list's names for the loaded objects
+        for name, o in zip(names, dst.objects, strict=True):
+            is_valley = name.endswith(suffix)
+            (valley_coll if is_valley else near_coll).objects.link(o)
+            (valley_objs if is_valley else near).append(o)
+    return sorted(near, key=lambda o: o.name), sorted(valley_objs, key=lambda o: o.name)
+
+
 def add_tint(materials):
     for mat in materials:
         nt = mat.node_tree
@@ -839,20 +883,20 @@ def build_trees(terrain, log):
         colls[key] = bpy.data.collections.new(key)
         scene.collection.children.link(colls[key])
     t = time.time()
-    near = import_variants(TREE_ASSETS, colls["trees_near"])
-    log(f"Trees: imported {len(near)} tree variants in {time.time() - t:.0f} s")
+    if LIGHT_TREES:
+        near, valley = load_light_trees(colls["trees_near"], colls["trees_mid"])
+        log(f"Trees: loaded the saved light trees ({len(near)} variants) and their valley versions ({VALLEY_TREES}, "
+            f"{len(valley)}) in {time.time() - t:.1f} s; nothing decimated")
+    else:
+        near = import_variants(TREE_ASSETS, colls["trees_near"])
+        log(f"Trees: imported {len(near)} tree variants in {time.time() - t:.0f} s")
 
-    # Mid band (1-9 km) and the treetop groups: decimated copies.
-    t = time.time()
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    for o in near:
-        mod = o.modifiers.new("decimate", "DECIMATE")
-        mod.ratio = min(1.0, MID_TREE_POLYS / len(o.data.polygons))
-        depsgraph.update()
-        mesh = bpy.data.meshes.new_from_object(o.evaluated_get(depsgraph))
-        o.modifiers.remove(mod)
-        colls["trees_mid"].objects.link(bpy.data.objects.new(o.name + "_mid", mesh))
-    log(f"Trees: decimated {len(colls['trees_mid'].objects)} mid-band copies in {time.time() - t:.0f} s")
+        # Mid band (1-9 km) and the treetop groups: decimated copies.
+        t = time.time()
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        for o in near:
+            colls["trees_mid"].objects.link(decimated_copy(o, depsgraph))
+        log(f"Trees: decimated {len(colls['trees_mid'].objects)} mid-band copies in {time.time() - t:.0f} s")
 
     add_tint({m for o in near for m in o.data.materials if m})
     for key in colls:  # sources only feed the scatter; hide them from the render itself

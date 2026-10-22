@@ -20,10 +20,11 @@ Personal portfolio piece: one photoreal view from a cabin porch over a misty mou
 
 ## Rules
 - Approved sources: Poly Haven (CC0; official site and API only) and the Lionsharp 911 .glb. Any other asset, npm package, Blender add-on or service needs Nems's OK after a license, source and security screen.
-- Never open or import `.blend` files from the internet; take Poly Haven models as glTF or FBX. Never enable "Auto Run Python Scripts" or pass `-y` / `--enable-autoexec`. No Blender MCP servers or AI bridge add-ons.
+- Never open or import `.blend` files from the internet; take Poly Haven models as glTF or FBX. `.blend` files our own scripts write (cached light trees under `assets-source/`, never downloaded or committed) are fine. Never enable "Auto Run Python Scripts" or pass `-y` / `--enable-autoexec`. No Blender MCP servers or AI bridge add-ons.
 - Branding: no Porsche logos or wordmarks in the site UI; the car itself can appear as-is in renders. The footer keeps the credit below and "Not affiliated with Porsche. Personal portfolio project." Client or commercial reuse means swapping the car first.
 - All JS bundled via npm: no CDN scripts, no analytics.
 - Respect `prefers-reduced-motion`.
+- Render budget: use the lightest model that looks the same at its size in the frame. Full-detail trees and props only right next to the camera; light versions (made once, saved beside the originals) everywhere else. Aim for peak RAM under 12 GB, and say in every report, in plain words, how much RAM and time a render took and what used most of it.
 
 ## Workflow
 - Tasks arrive as `docs/handoff/NN-name.md`. Nems runs all git and the manual tests.
