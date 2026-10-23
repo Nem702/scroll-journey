@@ -1,8 +1,13 @@
-r"""Handoff 13: section 2's look test. The car pulled over at a pull-out under the aurora, as two full-size stills.
+r"""Handoffs 13 and 15: section 2's look test. The car pulled over at a pull-out under the aurora, as full-size stills.
 
 Section 2 (option C) opens behind the parked car on its two red tail-lights, then circles its right side to the front. This
 renders two of its shots for Nems to judge the look before any frames are made: C1, behind the car (the opening shot),
-and C3, its right side.
+and C3, its right side. Round 2 (handoff 15) renders each under three sky options (--sky), so section 2's sky reads as
+the porch's:
+- lens: longer lenses, the cameras moved back so the car keeps its size and place. C1 then sees the porch's own slice of
+  sky (the same direction, up to the same height), mostly green; the aurora is unchanged.
+- fringe: 13's cameras, the aurora's magenta-red top at a third of its strength (10's top_share 0.6 -> 0.2), here only.
+- both: the two together.
 
 The night is section 1's last frame (69), from 11's frame table: 05's sky with the sun far below the horizon, 08's stars
 and night glow (at half, as 11 has it), 10's vivid aurora with 11's rays at the frame's phase, the frame's exposure and
@@ -12,33 +17,37 @@ the sky, the aurora and the car's own lamps.
 
 The set is built around the car at the porch's own map position, 200 m lower, so the valley, its mist, the ridge across
 it and the far ridges sit where section 1 shows them:
-- the ground, one grid in the car's frame, fine near the car and coarse out to 9 km: the road behind the car, a gravel
-  pull-out out to the edge of the drop, the hillside rising behind the road (the road bends uphill 200 m along), the drop
-  to the misty valley floor and the ridge across the valley. Near the car it's a separate object, whose gravel and
-  asphalt are truly displaced;
+- the ground in the car's frame: a grid, fine near the car and coarse out to 9 km, for the road behind the car, a gravel
+  pull-out out to the edge of the drop, the hillside rising behind the road (the road bends uphill 200 m along) and the
+  drop; past 300 m beyond the edge, the valley floor and the ridge across it are rings around the car, so their outlines
+  have no straight facets. Near the car the ground is a separate object, whose gravel and asphalt are truly displaced;
 - a low wooden guardrail 5.5 m ahead of the nose, with the edge of the drop 0.6 m past it;
 - handoff 14's light pines and firs on the hillside;
-- 05's far ridges where section 1 sees them and again where C3 looks, and 05's mist and haze;
-- a thin, local haze over the drop, so the headlight beams show.
+- 05's far ridges where section 1 sees them and again where C3 looks, in narrow wedges (no facets), the nearest one
+  (8 km) lowered so the three layer and fade with distance from 200 m below the porch; 05's mist and haze;
+- a thin, local haze in wisps over the drop, low and short, so the headlight beams show without a glowing sheet.
+The scripts loaded here (05, 08-11, car.py) are unchanged: the ridge, aurora and lamp changes are made only in this run.
 
 Run headless from the repo root (Blender isn't on PATH, so call it by full path), one still per run:
-    & "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" -b -P blender\13_s2_look.py -- --still C1 *> renders\review\13\13-console-C1.log
-    ... -P blender\13_s2_look.py -- --still C3 *> renders\review\13\13-console-C3.log
-    ... -P blender\13_s2_look.py -- --still C1 --preview NAME [--samples N] [--no-trees]   # 1280x720 tests
+    & "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" -b -P blender\13_s2_look.py -- --still C1 --sky lens *> renders\review\15\15-console-C1-lens.log
+    ... -P blender\13_s2_look.py -- --still C3 --sky fringe *> renders\review\15\15-console-C3-fringe.log
+    ... -P blender\13_s2_look.py -- --still C1 --sky both --preview NAME [--samples N] [--no-trees]   # 1280x720 tests
 
-A full run writes, into renders/review/13/: 13-<still>.png (8-bit, like 11's masters), 13-<still>.webp (encoded from the
-PNG as 11's night frames are, quality 98) and its block in 13-summary.txt (the camera, render time, memory, and for C1
-the tail-lights' pixels). Previews go to renders/review/13/preview/. Nothing else is written.
+A full run writes, into renders/review/15/: 15-<still>-<sky>.png (8-bit, like 11's masters), 15-<still>-<sky>.webp
+(encoded from the PNG as 11's night frames are, quality 98) and its block in 15-summary.txt (the camera, render time,
+memory, and for C1 the tail-lights' pixels). Previews go to renders/review/15/preview/. Nothing else is written; 13's
+stills in renders/review/13/ are never touched.
 """
 
 import argparse
 import ctypes
+import dataclasses
 import importlib.util
+import itertools
 import math
 import re
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import bpy
@@ -47,9 +56,9 @@ from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parent.parent
-REVIEW = ROOT / "renders" / "review" / "13"
+REVIEW = ROOT / "renders" / "review" / "15"
 PREVIEW = REVIEW / "preview"
-SUMMARY = REVIEW / "13-summary.txt"
+SUMMARY = REVIEW / "15-summary.txt"
 TEXTURES = ROOT / "assets-source" / "textures"
 
 
@@ -92,6 +101,10 @@ HILL_TOP, HILL_SLOPE = 260.0, 0.55  # the hillside rises toward this height abov
 # m: the hillside's large humps (150 m across, from 15 m up the slope, so the bank by the road stays a plain slope), its
 # rough ground (6 m across) and small bumps (1.5 m)
 HILL_LUMPS = (8.0, 0.6, 0.15)
+# The bank between the road and the trees: two finer layers of lumps (height m, across m) from the ditch up, on a fine
+# grid up to U_FINE's uphill end (20 m up the slope), and the forest floor's own height map as a bump.
+BANK_LUMPS = ((0.12, 1.5), (0.05, 0.5))
+BANK_BUMP = 0.03  # m: the height map's relief
 DROP_SCALE = 60.0  # the drop's e-folding length past the lip: 72 degrees at the lip, easing to the valley floor
 # 200 m along the road (toward C3's view), the road and the hillside start to bend uphill (toward -u), turning on this
 # radius until they run 30 degrees off their first line, so the road and the rail don't run straight to the horizon.
@@ -99,9 +112,15 @@ BEND = (200.0, 400.0, 30.0)
 
 # The ground grid: every U_STEP / W_STEP metres across the fine part, cells growing by GRID_GROWTH each beyond it.
 GROUND_FAR = 9000.0
-U_FINE, U_STEP = (-14.0, 11.0), 0.1  # across the shelf: the road's edges, the rail and the lip are grid lines
+U_FINE, U_STEP = (-31.0, 11.0), 0.1  # across the shelf: the road's edges, the rail and the lip are grid lines
 W_FINE, W_STEP = (-20.0, 56.0), 0.25
 GRID_GROWTH = 1.05
+# Past the edge, the grid's cells grow to ~300 m and show as straight facets on the valley's outlines. From VALLEY_FROM m
+# past the lip the valley is rings around the car instead, VALLEY_STEP degrees apart (about 4 px at 55 mm) and each
+# VALLEY_GROWTH times the last outward, so an outline seen from the car is sampled every few pixels. The grid stops
+# GRID_TO m past the lip; between the two they overlap, about 180 m below the lip, out of sight from the pull-out.
+VALLEY_FROM, GRID_TO = 300.0, 700.0
+VALLEY_STEP, VALLEY_GROWTH = 0.055, 1.007
 # The part near the car, subdivided at render time for true displacement: its edges are grid lines, and the displacement
 # fades out before them, so it meets the rest of the ground without a crack.
 PULLOUT_U, PULLOUT_W = (-12.0, 9.3), (-16.0, 50.0)
@@ -125,21 +144,37 @@ BEAM = (0.12, 0.20, 0.65)  # depth, height, top above the ground
 # out between the last two. 05's density, sizes and tilt for its pines by the porch.
 TREES_S = (3.0, 10.0, 320.0, 420.0)
 
-# Beam haze: thin mist over the drop, where the beams are bright. It fades in from the nose to the lip, and out toward
-# the far end, the sides, the top and the bottom (each: full density up to the first value, none past the second).
-HAZE_BOX = ((2.0, -14.0, -20.0), (35.0, 14.0, 8.0))  # (u, w, z) corners
-HAZE_FADE = {"far": (15.0, 35.0), "side": (7.0, 14.0), "top": (2.0, 8.0), "bottom": (-10.0, -20.0)}
-HAZE_DENSITY = 0.06  # per metre where it's densest: 0.03 barely shows the beams, 0.1 starts to veil the rail
+# Beam haze: thin mist low over the drop, where the beams are bright. It fades in from the nose to the lip, and out
+# toward the far end, the sides, the top and the bottom (each: full density up to the first value, none past the
+# second). Round 2: short and low (13's box reached 35 m out and 8 m up, so from behind it glowed as one sheet up past
+# the skyline), and broken into wisps with clear air between them.
+HAZE_BOX = ((2.0, -14.0, -8.0), (25.0, 14.0, 3.0))  # (u, w, z) corners
+HAZE_FADE = {"far": (12.5, 25.0), "side": (7.0, 14.0), "top": (1.05, 3.0), "bottom": (-4.0, -8.0)}
+HAZE_DENSITY = 0.03  # per metre where it's densest (Nems, Oct 21; 13 had 0.06)
+HAZE_WISPS = 3.0  # m across, flattened 2.5 times in height
+HAZE_CLEAR = 0.4  # share of the box with no haze
 HAZE_ANISOTROPY = 0.1  # nearly even: the beams show from behind (C1) and from the side (C3)
+
+# 05's far ridges: the nearest (8 km) crests at RIDGE1_CREST m above the porch's deck instead of 05's 250 m. From 200 m
+# below the porch, 05's three ridges all crest about 3.2 degrees up, so the nearest hid the other two. Each span is
+# built in RIDGE_SPLIT wedges: 05's 700 steps across a third of 100 degrees come to ~0.05 degrees, no visible facets.
+RIDGE1_CREST = 60.0
+RIDGE_SPANS = ((0.0, 100.0), (262.0, 360.0))  # yaw: where section 1 (and C1) looks, and where C3 looks
+RIDGE_SPLIT = 3
+
+# The aurora's magenta-red top in the "fringe" and "both" options: 10's top_share for the vivid look is 0.6.
+FRINGE_TOP_SHARE = 0.2
 
 CAR_SINK = 0.005  # the tyres settle this far into the gravel
 # car.py's tail-light lamps are point lights inside the lamp housings, so they light the car's own engine lid and rear
-# panel bright pink from a few centimetres away. Here they're wide spots aimed out of the lenses (same power): they light
-# the ground behind the car and the bumper, not the bodywork around them. car.py itself is unchanged.
+# panel bright pink from a few centimetres away. Here they're wide spots aimed out of the lenses: they light the ground
+# behind the car and the bumper, not the bodywork around them. At half car.py's power (Nems, Oct 21): only the light
+# they cast; the lit lens panels keep their brightness. car.py itself is unchanged.
 TAIL_CONE, TAIL_DOWN = 160.0, 10.0  # degrees across, and below level
+TAIL_POWER = 0.5
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class Shot:
     name: str
     what: str
@@ -151,11 +186,24 @@ class Shot:
     focus: float  # m
 
 
-# The task's numbers, except C1's height: at 0.95 m the tail-lights sit 73% down the frame, at 0.70 m 66% (the plan).
+# 13's cameras: the task's numbers, except C1's height (at 0.95 m the tail-lights sit 73% down the frame, at 0.70 m 66%).
+# They see the sky up to about 20 degrees, against about 15 from the porch, and the aurora's magenta rises fast above 13.
 SHOTS = {s.name: s for s in (
     Shot("C1", "behind the car", (-8.5, 0.0), 0.70, 0.0, 4.0, 34.0, 6.42),  # focused on the tail-lights
     Shot("C3", "its right side", (0.0, -8.0), 1.00, 90.0, 5.0, 40.0, 7.11),  # focused on the car's side
 )}
+# Longer lenses (sky options "lens" and "both"), moved back so the car keeps its size and place. C1's top edge sits at
+# 14.5 degrees up, like the porch's, and its tail-lights are 13's: as far apart and 67% down the frame (solved by
+# projection). Its camera stands in the ditch by the road, 0.76 m above it: about 0.6 m above the road.
+LONG_SHOTS = {s.name: s for s in (
+    Shot("C1", "behind the car", (-11.875, 0.0), 0.755, 0.0, 3.48, 52.0, 9.81),  # focused on the tail-lights
+    Shot("C3", "its right side", (0.0, -10.67), 1.00, 90.0, 3.64, 55.0, 9.78),
+)}
+SKIES = {  # label: (the cameras, the aurora fringe's top_share or None for 10's)
+    "lens": (LONG_SHOTS, None),
+    "fringe": (SHOTS, FRINGE_TOP_SHARE),
+    "both": (LONG_SHOTS, FRINGE_TOP_SHARE),
+}
 
 
 def to_world(u, w, z):
@@ -225,6 +273,10 @@ def ground_height(U, W):
     lumps = (HILL_LUMPS[0] * fbm(xh, yh, 150.0, 22.7, 4) * smoothstep(15.0, 120.0, s)
              + HILL_LUMPS[1] * fbm(xh, yh, 6.0, 23.9, 4) * smoothstep(2.0, 8.0, s)
              + HILL_LUMPS[2] * fbm(xh, yh, 1.5, 24.1, 3) * smoothstep(1.6, 4.0, s))
+    bank = s < ROAD[0] - U_FINE[0]  # on the fine grid, fading out before its end
+    sb = s[bank]
+    lumps[bank] += (sum(a * fbm(xh[bank], yh[bank], size, 26.3 + i, 3) for i, (a, size) in enumerate(BANK_LUMPS))
+                    * smoothstep(1.6, 2.6, sb) * (1.0 - smoothstep(16.0, 20.0, sb)))
     z[hill] = edge + ditch + rise + lumps
 
     # The pull-out's gentle unevenness (carried on over the lip so the edge stays continuous), none under the car.
@@ -287,9 +339,32 @@ def grid_part(name, pos, keep, attributes, mat, parent):
     return obj
 
 
+def corners(a, op):
+    """op (np.minimum or np.maximum) over each grid cell's four corners."""
+    return op.reduce([a[:-1, :-1], a[1:, :-1], a[1:, 1:], a[:-1, 1:]])
+
+
+def build_valley(mat, frame):
+    """The valley from VALLEY_FROM m past the lip out to GROUND_FAR: rings around the car, as one mesh."""
+    r0 = 0.9 * (LIP_U + VALLEY_FROM)  # the valley comes no nearer than this
+    rs = r0 * VALLEY_GROWTH ** np.arange(math.ceil(math.log(GROUND_FAR / r0) / math.log(VALLEY_GROWTH)) + 1)
+    rs[-1] = GROUND_FAR
+    yaws = np.radians(np.linspace(-180.0, 180.0, round(360.0 / VALLEY_STEP) + 1))  # the seam is uphill, behind the car
+    R, A = np.meshgrid(rs, yaws, indexing="ij")
+    U, W = R * np.cos(A), R * np.sin(A)
+    d = lateral(U, W)
+    keep = corners(d, np.maximum) > LIP_U + VALLEY_FROM
+    used = np.zeros(U.shape, bool)
+    for i, j in ((0, 0), (1, 0), (1, 1), (0, 1)):
+        used[i:i + keep.shape[0], j:j + keep.shape[1]] |= keep
+    Z = np.zeros(U.shape)
+    Z[used] = ground_height(U[used], W[used])[0]  # only the points in use: the noise is computed point by point
+    return grid_part("valley", np.stack([U, W, Z], -1), keep, {"lateral": d}, mat, frame)
+
+
 def build_ground(frame, trees, log):
-    """The ground in two objects: the pull-out near the car (subdivided and displaced at render time) and the rest, which
-    carries the trees. Returns the rest."""
+    """The ground in three objects: the pull-out near the car (subdivided and displaced at render time), the valley in
+    rings, and the rest, which carries the trees. Returns the rest."""
     t = time.time()
     us, ws = axis(U_FINE, U_STEP), axis(W_FINE, W_STEP)
     U, W = np.meshgrid(us, ws, indexing="ij")
@@ -308,9 +383,11 @@ def build_ground(frame, trees, log):
     attributes = {"lateral": d}
     if trees:
         attributes["dens_hill"] = tree_density(d, X, Y, W)
-    terrain = grid_part("terrain", pos, ~near, attributes, mat, frame)
+    terrain = grid_part("terrain", pos, ~near & (corners(d, np.minimum) < LIP_U + GRID_TO), attributes, mat, frame)
+    valley = build_valley(mat, frame)
     log(f"Ground: {len(us)} x {len(ws)} grid out to {GROUND_FAR / 1000:g} km; pull-out {len(pullout.data.polygons):,} "
-        f"faces (adaptive, {DICING_PX:g} px), the rest {len(terrain.data.polygons):,}; {time.time() - t:.0f} s")
+        f"faces (adaptive, {DICING_PX:g} px), the rest {len(terrain.data.polygons):,}; valley rings "
+        f"{len(valley.data.polygons):,}; {time.time() - t:.0f} s")
     return terrain
 
 
@@ -389,6 +466,14 @@ def ground_material():
                       "Float")
     nt.links.new(color, bsdf.inputs["Base Color"])
     nt.links.new(rough, bsdf.inputs["Roughness"])
+    # The forest floor's own height map as a bump, on the near ground only (not the gravel or the road).
+    ground_only = m("MULTIPLY", m("MULTIPLY", m("SUBTRACT", 1.0, road), m("SUBTRACT", 1.0, gravel)), m("SUBTRACT", 1.0, far))
+    bump = porch.node(nt, "ShaderNodeBump")
+    bump.inputs["Distance"].default_value = BANK_BUMP
+    nt.links.new(ground_only, bump.inputs["Strength"])
+    nt.links.new(porch.image_node(nt, TEXTURES / "forrest_ground_01" / "forrest_ground_01_disp_2k.jpg", False, hv),
+                 bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 
     # Displacement, faded out before the pull-out object's edges (so it meets the rest of the ground exactly).
     inside = m("MULTIPLY", m("MULTIPLY", ramp(nt, u, PULLOUT_U[0] + 0.3, PULLOUT_U[0] + 0.8),
@@ -439,8 +524,8 @@ def build_trees(terrain, log):
 
 
 def build_beam_haze(frame):
-    """A box of thin mist over the drop, in the car's frame: it fades in from the nose to the lip and out toward its far
-    end, sides, top and bottom, with soft, uneven patches."""
+    """A box of thin mist low over the drop, in the car's frame: it fades in from the nose to the lip and out toward its
+    far end, sides, top and bottom, in flat wisps with clear air between them."""
     lo, hi = HAZE_BOX
     centre = tuple((a + b) / 2 for a, b in zip(lo, hi, strict=True))
     mat = bpy.data.materials.new("beam_haze")
@@ -462,7 +547,11 @@ def build_beam_haze(frame):
               m("MULTIPLY", ramp(nt, m("ABSOLUTE", w), fade["side"][1], fade["side"][0]),
                 m("MULTIPLY", ramp(nt, z, fade["top"][1], fade["top"][0]),
                   ramp(nt, z, fade["bottom"][1], fade["bottom"][0]))))
-    patches = m("MULTIPLY_ADD", noise_tex(nt, coord, 4.0, 2.0), 1.6, 0.2)
+    flat = porch.node(nt, "ShaderNodeMapping")
+    flat.inputs["Scale"].default_value = (1.0, 1.0, 2.5)  # wisps flatter than they're wide
+    nt.links.new(coord, flat.inputs["Vector"])
+    clear = 0.3 + 0.4 * HAZE_CLEAR  # the noise is mostly 0.3-0.7: below this it's clear air
+    patches = ramp(nt, noise_tex(nt, flat.outputs["Vector"], HAZE_WISPS, 4.0), clear, clear + 0.15)
     vol = porch.node(nt, "ShaderNodeVolumeScatter", phase="HENYEY_GREENSTEIN")
     vol.inputs["Anisotropy"].default_value = HAZE_ANISOTROPY
     nt.links.new(m("MULTIPLY", m("MULTIPLY", shape, patches), HAZE_DENSITY), vol.inputs["Density"])
@@ -481,6 +570,7 @@ def place_car(scene):
         obj.data.type = "SPOT"
         spot = bpy.data.lights[obj.data.name]  # the same light, seen as a spot now
         spot.spot_size, spot.spot_blend = math.radians(TAIL_CONE), 0.5
+        spot.energy = car_lib.TAILLIGHT_LAMP_W * TAIL_POWER
         obj.rotation_euler = (math.radians(90.0 - TAIL_DOWN), 0.0, 0.0)  # a spot shines down its -Z: back, a little down
     turn = TURN + math.radians(90.0)  # the model faces -Y
     car.root.rotation_euler = (0.0, 0.0, turn)
@@ -516,15 +606,29 @@ def describe(shot):
 # ---------------------------------------------------------------------------------------------
 # The night, the run and the outputs.
 
-def night_sky(scene, frame):
-    """Section 1's frame 69 as 11 renders it. 11's show_frame can't be used as it is: it also switches the porch's
-    sconces and 08's lantern."""
+def build_far_ridges():
+    """05's far ridges, the nearest lowered to RIDGE1_CREST, in narrow wedges over RIDGE_SPANS. Only this run's copy of
+    05's settings changes (05 is loaded as a module per run), and it's put back after."""
+    ridges, yaws = porch.FAR_RIDGES, porch.YAW_RANGE
+    porch.FAR_RIDGES = [(ridges[0][0], RIDGE1_CREST, ridges[0][2]), *ridges[1:]]
+    for lo, hi in RIDGE_SPANS:
+        for a, b in itertools.pairwise(np.linspace(lo, hi, RIDGE_SPLIT + 1)):
+            porch.YAW_RANGE = (float(a), float(b))
+            porch.build_far_ridges()
+    porch.FAR_RIDGES, porch.YAW_RANGE = ridges, yaws
+
+
+def night_sky(scene, frame, fringe):
+    """Section 1's frame 69 as 11 renders it, the aurora's top at `fringe` (10's top_share; None keeps 10's). 11's
+    show_frame can't be used as it is: it also switches the porch's sconces and 08's lantern."""
     key = frame.key
     porch.SUN_ELEVATION = key.sun
     porch.build_world(scene)
     kf.add_night_sky(scene.world)
-    night10.add_aurora(scene.world, night10.LOOKS[frames11.AURORA_LOOK], frame.aurora, frame.phase,
-                       **frames11.AURORA_RAYS)
+    look = night10.LOOKS[frames11.AURORA_LOOK]
+    if fringe is not None:
+        look = dataclasses.replace(look, top_share=fringe)
+    night10.add_aurora(scene.world, look, frame.aurora, frame.phase, **frames11.AURORA_RAYS)
     scene.view_settings.exposure = key.exposure
     porch.GRADE_MASK = tuple(g * 2 ** (kf.GRADE_TUNED_AT - key.exposure) for g in kf.GRADE_MASK_R3)
     porch.build_compositor(scene)
@@ -569,14 +673,17 @@ def update_summary(name, lines):
             head, _, body = block.partition("\n")
             blocks[head.strip()] = body.strip("\n")
     blocks[name] = "\n".join(lines)
-    SUMMARY.write_text("Section 2 look test (handoff 13), 2560x1440: one block per still, from the run that rendered it."
+    SUMMARY.write_text("Section 2 look, round 2 (handoff 15), 2560x1440: one block per still and sky option, from the run "
+                       "that rendered it."
                        "\n\n" + "\n\n".join(f"## {k}\n{blocks[k]}" for k in sorted(blocks)) + "\n", encoding="utf-8")
 
 
 def parse_args(argv):
     p = argparse.ArgumentParser(prog="13_s2_look.py")
     p.add_argument("--still", required=True, choices=list(SHOTS), help="which shot to render")
-    p.add_argument("--preview", metavar="NAME", help="1280x720 test into renders/review/13/preview/NAME-<still>.webp")
+    p.add_argument("--sky", required=True, choices=list(SKIES), help="the sky option (see the docstring)")
+    p.add_argument("--preview", metavar="NAME",
+                   help="1280x720 test into renders/review/15/preview/NAME-<still>-<sky>.webp")
     p.add_argument("--samples", type=int, help="override the sample count (previews only)")
     p.add_argument("--no-trees", action="store_true", help="skip the trees (previews only)")
     args = p.parse_args(argv)
@@ -589,7 +696,9 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     args = parse_args(argv)
-    shot, preview = SHOTS[args.still], args.preview is not None
+    shots, fringe = SKIES[args.sky]
+    shot, preview = shots[args.still], args.preview is not None
+    label = f"{shot.name}-{args.sky}"
     started = time.time()
     lines = []
 
@@ -603,7 +712,7 @@ def main(argv=None):
     samples = args.samples or (porch.PREVIEW_SAMPLES if preview else porch.FINAL_SAMPLES)
     devices = porch.setup_render(scene, preview, samples)
     scene.cycles.offscreen_dicing_scale = OFFSCREEN_DICING
-    night_sky(scene, frame)  # after setup_render, which sets 05's daytime exposure
+    night_sky(scene, frame, fringe)  # after setup_render, which sets 05's daytime exposure
     ram = [("sky", ram_gb()[0])]
     set_frame = porch.link_object(bpy.data.objects.new("set", None))
     set_frame.location, set_frame.rotation_euler.z = SET_AT, TURN
@@ -615,21 +724,20 @@ def main(argv=None):
     if not args.no_trees:
         build_trees(terrain, log)
         ram.append(("trees", ram_gb()[0]))
-    for wedge in (porch.YAW_RANGE, (262.0, 360.0)):  # where section 1 (and C1) looks, and where C3 looks
-        porch.YAW_RANGE = wedge
-        porch.build_far_ridges()
-    porch.YAW_RANGE = (0.0, 100.0)
+    build_far_ridges()
     porch.build_atmosphere()
     build_beam_haze(set_frame)
     ram.append(("far ridges, mist and haze", ram_gb()[0]))
     cam = add_camera(scene, shot)
     key = frame.key
-    log(f"{shot.name}: {describe(shot)}")
+    log(f"{label}: {describe(shot)}")
     log(f"Night: frame {FRAME} (sun {key.sun:+g} deg, exposure {key.exposure:+g} EV, aurora {frame.aurora:g} at phase "
-        f"{frame.phase:g}, rays {frames11.AURORA_RAYS}); night glow {kf.AIRGLOW}")
+        f"{frame.phase:g}, rays {frames11.AURORA_RAYS}); night glow {kf.AIRGLOW}; sky option {args.sky}: aurora "
+        f"top_share {night10.LOOKS[frames11.AURORA_LOOK].top_share if fringe is None else fringe:g}")
     log(f"Set: shelf {-SET_AT[2]:g} m below the porch, heading {HEADING:g} deg; road u {ROAD}, guardrail at u {RAIL_U:g} "
-        f"({posts} posts, w {RAIL_W[0]:g} to {RAIL_W[1]:g}), lip at u {LIP_U:g}; beam haze {HAZE_DENSITY:g}/m, "
-        f"anisotropy {HAZE_ANISOTROPY:g}")
+        f"({posts} posts, w {RAIL_W[0]:g} to {RAIL_W[1]:g}), lip at u {LIP_U:g}; beam haze {HAZE_DENSITY:g}/m in "
+        f"{HAZE_WISPS:g} m wisps, anisotropy {HAZE_ANISOTROPY:g}; far ridge 1 crest {RIDGE1_CREST:g} m; tail lamps at "
+        f"{TAIL_POWER:g} of car.py's power")
     r = scene.render
     log(f"Render: {r.resolution_x * r.resolution_percentage // 100}x{r.resolution_y * r.resolution_percentage // 100}, "
         f"{samples} samples, on {devices}; trees {'off' if args.no_trees else 'on'}")
@@ -641,7 +749,7 @@ def main(argv=None):
 
     if preview:
         PREVIEW.mkdir(parents=True, exist_ok=True)
-        path = PREVIEW / f"{args.preview}-{shot.name}.webp"
+        path = PREVIEW / f"{args.preview}-{label}.webp"
         kf.save_render(scene, path, "WEBP", 95)
         log(f"Wrote {path.relative_to(ROOT)}")
         with open(PREVIEW / "preview-log.txt", "a", encoding="utf-8") as f:
@@ -649,13 +757,13 @@ def main(argv=None):
         return
 
     REVIEW.mkdir(parents=True, exist_ok=True)
-    png, webp = REVIEW / f"13-{shot.name}.png", REVIEW / f"13-{shot.name}.webp"
+    png, webp = REVIEW / f"15-{label}.png", REVIEW / f"15-{label}.webp"
     kf.save_render(scene, png, "PNG")  # 8-bit, as 11's masters
     im = frames09.image_from(kf.load(png), porch.FINAL_RES)  # a new image, so Blender honours the WebP quality
     im.file_format = "WEBP"
     im.save(filepath=str(webp), quality=frames09.NIGHT_QUALITY)
     bpy.data.images.remove(im)
-    block = [(f"{shot.name} | {describe(shot)} | render {seconds:.1f} s | Cycles {peak_mb:,.0f} MB | RAM peak "
+    block = [(f"{label} | {describe(shot)} | render {seconds:.1f} s | Cycles {peak_mb:,.0f} MB | RAM peak "
               f"{peak:.1f} GB | {time.strftime('%Y-%m-%d %H:%M')}"),
              (f"Built in {built:.0f} s. RAM after each step (GB): " + ", ".join(f"{k} {v:.1f}" for k, v in ram)
               + f"; peak {peak:.1f} during the render"),
@@ -672,7 +780,7 @@ def main(argv=None):
                      f"right {xy(meas_r)}")
     for line in block:
         print(line, flush=True)
-    update_summary(shot.name, block)
+    update_summary(label, block)
     print(f"Wrote {png.name}, {webp.name} and its block in {SUMMARY.name}; run time {time.time() - started:.0f} s",
           flush=True)
 
